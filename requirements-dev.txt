@@ -1,0 +1,5 @@
+aws-lambda-powertools[all]
+pytest
+pytest-cov
+boto3
+mypy-boto3-sqs

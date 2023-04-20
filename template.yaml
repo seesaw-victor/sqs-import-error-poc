@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  sqs-import-error
+
+  Sample SAM Template for sqs-import-error
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 3
+    MemorySize: 128
+
+Parameters:
+  Stage:
+    Type: String
+    Description: Stage name for the environment
+    Default: dev
+    AllowedValues:
+      - sandbox
+      - dev
+      - qa
+      - prod
+
+Resources:
+  # Hypothesis #1 without DLQ, so Visibility Timeout of 1h should be respected
+  ## Result: Visibility Timeout is honoured a retry only happens after 1h
+
+  QueueWithoutDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-sqs-queue.html#cfn-sqs-queue-visibilitytimeout
+      VisibilityTimeout: 3600 # message visibility timeout default is 30s
+
+  NoDLQFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: no_dlq/
+      Handler: app.lambda_handler
+      Runtime: python3.10
+      Layers:
+        - !Sub arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:30
+      Architectures:
+        - x86_64
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt QueueWithoutDLQ.QueueName
+      Events:
+        Batch:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt QueueWithoutDLQ.Arn
+            # Partial Batch Error shouldn't affect the hypothesis, leaving for completion if you want a third.
+            # FunctionResponseTypes:
+            #   - ReportBatchItemFailures
+
+  # Hypothesis #2 with DLQ and maxReceiveCount configured that should be honoured
+  ## Result: maxReceiveCount is honoured as expected. Message goes to DLQ after first failure regardless of the error
+
+  QueueWithDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-sqs-queue.html#cfn-sqs-queue-visibilitytimeout
+      VisibilityTimeout: 3600 # message visibility timeout default is 30s
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MyDLQ.Arn
+        maxReceiveCount: 1
+
+  MyDLQ:
+    Type: AWS::SQS::Queue
+
+  DLQFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: dlq/
+      Handler: app.lambda_handler
+      Runtime: python3.10
+      Layers:
+        - !Sub arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:30
+      Architectures:
+        - x86_64
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt QueueWithDLQ.QueueName
+      Events:
+        Batch:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt QueueWithDLQ.Arn
+            # Partial Batch Error shouldn't affect the hypothesis, leaving for completion if you want a third.
+            # FunctionResponseTypes:
+            #   - ReportBatchItemFailures
+
+  ResourcesMapParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${Stage}/service/sqs_import_error_poc/test/config"
+      Type: String
+      Description: Service Map with common resources used for integ/e2e testing
+      Value: !Sub |
+        {
+            "QueueWithDLQ": "${QueueWithDLQ}",
+            "QueueWithoutDLQ": "${QueueWithoutDLQ}",
+            "Stage": "${Stage}"
+        }
+
+Outputs:
+  NoDLQFunction:
+    Description: "NoDLQ Function ARN"
+    Value: !GetAtt NoDLQFunction.Arn
+  DLQFunction:
+    Description: "DLQFunction Function ARN"
+    Value: !GetAtt DLQFunction.Arn
+  QueueWithDLQ:
+    Description: "Queue with DLQ"
+    Value: !Ref QueueWithDLQ
+  QueueWithoutDLQ:
+    Description: "Queue with default settings (no DLQ)"
+    Value: !Ref QueueWithoutDLQ
