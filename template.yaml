@@ -30,7 +30,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-sqs-queue.html#cfn-sqs-queue-visibilitytimeout
-      VisibilityTimeout: 3600 # message visibility timeout default is 30s
+      VisibilityTimeout: 30 # message visibility timeout default is 30s
 
   NoDLQFunction:
     Type: AWS::Serverless::Function
@@ -61,7 +61,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-sqs-queue.html#cfn-sqs-queue-visibilitytimeout
-      VisibilityTimeout: 3600 # message visibility timeout default is 30s
+      VisibilityTimeout: 30 # message visibility timeout default is 30s
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt MyDLQ.Arn
         maxReceiveCount: 1
